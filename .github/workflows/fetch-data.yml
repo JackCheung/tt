@@ -44,7 +44,12 @@ jobs:
             );
             require('fs').writeFileSync('data.json', JSON.stringify(res.data));
           }
-          getToken().then(token => fetchData(token));
+          getToken()
+  .then(token => fetchData(token))
+  .catch(error => {
+    console.error("API请求失败：", error.response?.data || error.message);
+    process.exit(1);  // 明确退出并报错
+  });
           "
 
       - name: 生成网页
