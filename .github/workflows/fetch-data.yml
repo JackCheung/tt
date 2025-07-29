@@ -22,10 +22,10 @@ jobs:
 
       - name: 获取飞书数据
         env:
-          APP_ID: cli_a802eea4e970100b
-          APP_SECRET: H7DHYOxuBjPO2gBhGKiphfgvRIx5MqZ7
-          APP_TOKEN: EVTdbXDjuaSo4tsqBOQcvP48nTe
-          TABLE_ID: tblG8EmS9NH0dGOz
+          APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
+          TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
         run: |
           node -e "
           const axios = require('axios');
@@ -44,12 +44,7 @@ jobs:
             );
             require('fs').writeFileSync('data.json', JSON.stringify(res.data));
           }
-          getToken()
-  .then(token => fetchData(token))
-  .catch(error => {
-    console.error("API请求失败：", error.response?.data || error.message);
-    process.exit(1);  // 明确退出并报错
-  });
+          getToken().then(token => fetchData(token));
           "
 
       - name: 生成网页
