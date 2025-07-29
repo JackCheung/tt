@@ -16,9 +16,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: 'npm'  # 缓存npm依赖，加速构建
 
       - name: 安装依赖
-        run: npm install
+        run: |
+          npm install
+          npm install axios  # 确保axios被安装（如果package.json中未声明）
 
       - name: 获取飞书数据
         env:
@@ -29,31 +32,65 @@ jobs:
         run: |
           node -e "
           const axios = require('axios');
-          async function getToken() {
-            const res = await axios.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-              app_id: process.env.APP_ID,
-              app_secret: process.env.APP_SECRET
-            });
-            return res.data.tenant_access_token;
+          const fs = require('fs');
+
+          // 错误处理封装
+          async function main() {
+            try {
+              // 1. 获取访问令牌
+              const tokenRes = await axios.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+                app_id: process.env.APP_ID,
+                app_secret: process.env.APP_SECRET
+              });
+
+              if (tokenRes.data.code !== 0) {
+                throw new Error(\`获取Token失败: \${JSON.stringify(tokenRes.data)}\`);
+              }
+              const token = tokenRes.data.tenant_access_token;
+              console.log('Token获取成功');
+
+              // 2. 拉取表格数据
+              const dataRes = await axios.post(
+                \`https://open.feishu.cn/open-apis/bitable/v1/apps/\${process.env.APP_TOKEN}/tables/\${process.env.TABLE_ID}/records/search\`,
+                { page_size: 100 },
+                { headers: { Authorization: \`Bearer \${token}\` } }
+              );
+
+              if (dataRes.data.code !== 0) {
+                throw new Error(\`拉取数据失败: \${JSON.stringify(dataRes.data)}\`);
+              }
+              console.log(\`成功获取\${dataRes.data.data.items?.length || 0}条数据\`);
+
+              // 3. 写入文件
+              fs.writeFileSync('data.json', JSON.stringify(dataRes.data, null, 2));
+
+            } catch (err) {
+              console.error('执行失败:', err.message);
+              // 输出详细错误信息（便于调试）
+              if (err.response) {
+                console.error('响应数据:', JSON.stringify(err.response.data, null, 2));
+              }
+              process.exit(1);  // 明确失败退出码
+            }
           }
-          async function fetchData(token) {
-            const res = await axios.post(
-              \`https://open.feishu.cn/open-apis/bitable/v1/apps/\${process.env.APP_TOKEN}/tables/\${process.env.TABLE_ID}/records/search\`,
-              { page_size: 100 },
-              { headers: { Authorization: \`Bearer \${token}\` } }
-            );
-            require('fs').writeFileSync('data.json', JSON.stringify(res.data));
-          }
-          getToken().then(token => fetchData(token));
+
+          main();
           "
 
       - name: 生成网页
         run: node scripts/generate-pages.js
+        # 仅当数据文件存在时执行（避免生成失败）
+        if: -f 'data.json'
 
       - name: 提交更新
         run: |
           git config --global user.name "自动部署机器人"
           git config --global user.email "bot@example.com"
           git add .
-          git commit -m "自动更新: $(date +'%Y-%m-%d %H:%M')" || exit 0
-          git push
+          # 仅在有变更时提交
+          if git diff --cached --quiet; then
+            echo "无数据更新，跳过提交"
+          else
+            git commit -m "自动更新: $(date +'%Y-%m-%d %H:%M')"
+            git push
+          fi
